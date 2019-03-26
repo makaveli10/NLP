@@ -1,0 +1,131 @@
+import codecs
+import re
+import pickle
+import ujson
+import os
+import ast
+from tqdm import tqdm
+from collections import Counter
+from nltk import word_tokenize
+from utilities import UNK, GO, EOS
+
+
+special_character = re.compile(r"[^A-Za-z_\d,.;!'\- ]", re.IGNORECASE)
+alphanumeric_character = re.compile(r"[^A-Za-z_\d\- ]", re.IGNORECASE)
+duplicate_punct = re.compile(r"[?.!,;]+(?=[?.!,;])", re.IGNORECASE)
+connect_punct = re.compile(r"-+|_+", re.IGNORECASE)
+
+
+def cleanup_sentence(sent, only_alphanumeric):
+    if only_alphanumeric:
+        sent = alphanumeric_character.sub("", sent)
+    else:
+        sent = special_character.sub("", sent)
+        sent = duplicate_punct.sub("", sent)
+
+    sent = duplicate_punct.sub("", sent)
+    return sent
+
+
+def pickle_dump(data, save_path, suffix=".pkl"):
+    with codecs.open(save_path + suffix, mode='wb') as f:
+        pickle.dump(data, f)
+
+
+def json_dump(data, save_path, suffix=".json"):
+    with codecs.open(save_path + suffix, mode='w', encoding='utf-8') as f:
+        ujson.dump(data, f)
+
+
+def build_vocab(utterances, max_vocab_size):
+    word_counter = Counter()
+    for utter in tqdm(utterances, desc="Building Vocabulary"):
+        for word in utter["lu"]:
+            word_counter[word] += 1
+        for word in utter["ru"]:
+            word_counter[word] += 1
+
+    vocab = [GO, EOS, UNK] + [word for word, _ in word_counter.most_common(max_vocab_size)]
+    word_dict = dict([(word, idx) for idx, word in enumerate(vocab)])
+    return vocab, word_dict
+
+
+def build_dataset(utterances, word_dict):
+    dataset =[]
+    for utter in tqdm(utterances, desc="Building Dataset.."):
+        lu = [word_dict[word] if word in word_dict else word_dict[UNK] for word in utter]
+        ru = [word_dict[word] if word in word_dict else word_dict[UNK] for word in utter]
+        record = {"lu": lu, "ru": ru}
+        dataset.append(record)
+    return dataset
+
+
+def read_cornell_id_sent_pair(movie_lines):
+    id_sent = {}
+    with codecs.open(movie_lines, mode='r', encoding='utf-8', errors='ignore') as f:
+        for line in tqdm(f, desc="Reading Cornell movie lines"):
+            line = line.lstrip().rstrip().split('+++$+++')
+            if len(line) != 5:
+                continue
+            id_sent[line[0]] = line[4]
+    return id_sent
+
+
+def read_cornell_conversation_ids(movie_conversations):
+    conversation_ids = []
+    with codecs.open(movie_conversations, mode='r', encoding='utf-8', errors='ignore') as f:
+        for line in tqdm(f, desc="Read cornell movie conversations"):
+            line = line.lstrip().rstrip().split(" +++$+++ ")
+            if len(line) != 4:
+                continue  # make sure current line in correct format
+            conversation_ids.append(ast.literal_eval(line[-1]))
+    return conversation_ids
+
+
+def create_cornell_utter_pairs(movie_lines, movie_conversations, max_sent_len, min_sent_len, only_alphanumeric):
+    id_to_sent = read_cornell_id_sent_pair(movie_lines)
+    conv_ids = read_cornell_conversation_ids(movie_conversations)
+    utterances = []
+    for conversation in tqdm(conv_ids, desc="Building cornell utterance pairs"):
+        if len(conversation) <= 1:
+            continue
+        if len(conversation) % 2 != 0:
+            conversation = conversation[:-1] + [conversation[-2], conversation[-1]]
+        for i in range(0, len(conversation), 2):
+            if conversation[i] not in id_to_sent or conversation[i+1] not in id_to_sent:
+                continue
+            # clean up sentences
+            lu = cleanup_sentence(conversation[i].lower(), only_alphanumeric)
+            ru = cleanup_sentence(conversation[i+1].lower(), only_alphanumeric)
+            # tokenize words
+            lu_words, ru_words = word_tokenize(lu), word_tokenize(ru)
+            lu_length, ru_length = len(lu_words), len(ru_words)
+            if lu_length < min_sent_len or ru_length < min_sent_len:
+                continue
+            lu_words = lu_words[:max_sent_len] if lu_length > max_sent_len else lu_length
+            ru_words = ru_words[:max_sent_len] if ru_length > max_sent_len else ru_length
+            utter = {"lu": lu_words, "ru": ru_words}
+            utterances.append(utter)
+    return utterances
+
+
+def process_cornell(tf_config):
+    # input path
+    movie_lines = os.path.join(tf_config["raw_data_dir"], "movie_lines.txt")
+    movie_conversations = os.path.join(tf_config["raw_data_dir"], "movie_conversations.txt")
+    # save path
+    save_path = tf_config["save_dir"]
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    vocab_path = os.path.join(save_path, "vocabulary")
+    dataset_path = os.path.join(save_path, "dataset")
+    # process data
+    utterances = create_cornell_utter_pairs(movie_lines, movie_conversations, tf_config["max_sent_len"],
+                                            tf_config["min_sent_len"], tf_config["only_alphanumeric"])
+    word_vocab, word_dict = build_vocab(utterances, tf_config["vocab_size"])
+    dataset = build_dataset(utterances, word_dict)
+    vocabulary = {"source_dict": {}, "target_dict": word_dict}
+    # write to file
+    train_size = int(len(dataset) * tf_config["train_ratio"])
+    json_dump({"train_set": dataset[0:train_size], "test_set": dataset[train_size:]}, dataset_path)
+    json_dump(vocabulary, vocab_path)
