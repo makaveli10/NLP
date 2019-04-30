@@ -39,7 +39,7 @@ def is_num_digit(word):
         return True
     except (TypeError, ValueError):
         pass
-    result =  re.compile(r'^[-+]?[0-9]+,[0-9]+$').match(word)
+    result = re.compile(r'^[-+]?[0-9]+,[0-9]+$').match(word)
     if result:
         return True
     return False
