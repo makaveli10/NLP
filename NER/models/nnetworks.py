@@ -217,6 +217,49 @@ def dot_attention(inputs, memory, hidden, drop_rate=0.0, is_train=True, scope=No
         return res * gate
 
 
+class AttentionCell(RNNCell):
+    """
+    refer: https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/ops/rnn_cell_impl.py
+    """
+    def __init__(self, num_units, memory, pmemory, cell_type='lstm'):
+        self.num_units = num_units
+        self._cell = GRUCell(self.num_units) if cell_type == 'gru' else LSTMCell(self.num_units)
+        self.memory = memory
+        self.pmemory = pmemory
+        self.memory_units = memory.get_shape().as_list()[-1]
+
+    @property
+    def state_size(self):
+        self._cell.state_size
+
+    @property
+    def output_size(self):
+        return self._cell.output_size
+
+    def __call__(self, inputs, state, scope=None):
+        c, memory = state
+        h_attn = tf.layers.dense(memory, self.memory_units, use_bias=False, name='wah')
+        # (max_time, batch_size, attention_unit
+        h_a = tf.nn.tanh(tf.add(self.pmemory, h_attn))
+        alphas = tf.squeeze(tf.exp(tf.layers.dense(h_a, units=1, use_bias=False, name='way')), axis=[-1])
+        # (max_time, batch_size)
+        alphas = tf.div(alphas, tf.reduce_sum(alphas, axis=0, keep_dims=True))
+        # (batch_time, attn_units)
+        w_context = tf.reduce_sum(tf.multiply(self.memory, tf.expand_dims(alphas, axis=-1)), axis=0)
+        h, new_state = self._cell(inputs, state)
+        lfc = tf.layers.dense(w_context, self.num_units, use_bias=False, name='wfc')
+        # (batch_size, num_units)
+        fused = tf.nn.sigmoid(tf.layers.dense(lfc, self.num_units, use_bias=False, name='wff') +
+                              tf.layers.dense(h, self.num_units, name='wfh'))
+        h_fused = tf.multiply(fused, lfc) + h
+        return h_fused, new_state
+
+
+def label_smoothing(inputs, epsilon=0.1):
+    dim = inputs.get_shape().as_list()[-1]  # number of channels
+    return ((1 - epsilon) * inputs) + (epsilon / dim)
+
+
 def flatten(tensor, keep):
     tensor_shape = tensor.get_shape().as_list()
     start = len(tensor_shape) - keep
