@@ -1,10 +1,10 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.python.ops.rnn_cell import LSTMCell, GRUCell, MultiRNNCell
+from tensorflow.python.ops.rnn_cell import MultiRNNCell
 from tensorflow.python.ops.rnn import bidirectional_dynamic_rnn, dynamic_rnn
 from tensorflow.contrib.rnn.python.ops.rnn import stack_bidirectional_dynamic_rnn
 from models import BaseModel, multi_head_attention, multi_conv1d
-from models import normalize_layer, highway_network
+from models import normalize_layer, highway_network, AttentionCell
 from utilities import Progbar
 
 
@@ -75,7 +75,43 @@ class SeqLabelModel(BaseModel):
             print("words and chars concat representation shape {}".format(self.word_emb.get_shape().as_list()))
 
     def _build_model_op(self):
-        pass
+        cells_forw = self._create_rnn_cell()
+        cells_back = self._create_rnn_cell()
+        with tf.variable_scope("bi_directional_rnn"):
+            if self.conf["use_stack_rnn"]:
+                dynamic_rnn_outs, *_ = stack_bidirectional_dynamic_rnn(cells_forw, cells_back, inputs=self.word_emb,
+                                                                       dtype=tf.float32, sequence_length=self.seq_len)
+            else:
+                dynamic_rnn_outs, *_ = bidirectional_dynamic_rnn(cells_forw, cells_back, inputs=self.word_emb,
+                                                                 dtype=tf.float32, sequence_length=self.seq_len)
+            rnn_outs = tf.concat(dynamic_rnn_outs, axis=-1)
+            rnn_outs = tf.layers.dropout(rnn_outs, rate=self.drop_rate, training=self.is_train)
+            if self["use_residual"]:
+                project = tf.layers.dense(rnn_outs, 2*self.conf["num_units"], use_bias=False)
+                rnn_outs = rnn_outs + project
+            output = normalize_layer(rnn_outs) if self.conf["use_layer_norm"] else rnn_outs
+            print("rnn output shape is {}".format(output.get_shape().as_list()))
+        if self.conf["use_attention"] == "self_attention":
+            with tf.variable_scope("self_attention"):
+                attention_outs = multi_head_attention(output, output, self.conf["num_heads"], self.conf["attention_size"],
+                                                      drop_rate=self.drop_rate, is_train=self.is_train)
+                if self.conf["use_residual"]:
+                    attention_outs = attention_outs + output
+                output = normalize_layer(attention_outs) if self.conf["use_layer_norm"] else attention_outs
+                print("rnn output shape is {}".format(output.get_shape().as_list()))
+        elif self.conf["use_attention"] == "normal_attention":
+            with tf.variable_scope("normal_attention"):
+                context = tf.transpose(output, [1, 0, 2])
+                p_context = tf.layers.dense(output, units=2*self.conf["num_units"], use_bias=False)
+                p_context = tf.transpose(p_context, [1, 0, 2])
+                attention_cell = AttentionCell(self.conf["num_units"], context, p_context)
+                attention_outs, _ = dynamic_rnn(attention_cell, context, sequence_length=self.seq_len,
+                                                time_major=True, dtype=tf.float32)
+                output = tf.transpose(attention_outs, [1, 0, 2])
+                print("rnn output shape is {}".format(output.get_shape().as_list()))
+        with tf.variable_scope("project"):
+            self.logits = tf.layers.dense(output, units=self.tag_vocab_size, use_bias=True)
+            print("logits shape is {}".format(output.get_shape().as_list()))
 
     def train_epoch(self, train_set, valid_data, epoch):
         pass
