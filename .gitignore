@@ -1,0 +1,4 @@
+.DS_Store
+cmu_nlp/01_tf_bag_of_words/bow.ipynb
+cmu_nlp/01_tf_bag_of_words/.ipynb_checkpoints/bow-checkpoint.ipynb
+cmu_nlp/01_tf_bag_of_words/__pycache__/models.cpython-37.pyc
