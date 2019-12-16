@@ -17,3 +17,18 @@ class BoW(nn.Module):
         out = torch.sum(emb_out, dim=0) + self.bias  # size(out) = N
         out = out.view(1, -1)   # size(out) = 1 x N
         return out
+    
+class CBoW(nn.Module):
+    def __init__(self, nwords, ntags, emb_size):
+        super(CBoW, self).__init__()
+        self.embedding = nn.Embedding(nwords, emb_size)
+        nn.init.xavier_uniform_(self.embedding.weight)
+        self.linear = nn.Linear(emb_size, ntags)
+        nn.init.xavier_uniform_(self.linear.weight)
+    
+    def forward(self, nwords):
+        emb_out = self.embedding(nwords)
+        emb_sum = torch.sum(emb_out, dim=0)
+        out = emb_sum.view(1, -1) # size(emb_sum) = 1 x emb_size
+        out = self.linear(out)
+        return out
