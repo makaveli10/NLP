@@ -19,17 +19,17 @@ class tfCBow(tf.keras.Model):
         super(tfCBow, self).__init__()
         self.embedding = tf.keras.layers.Embedding(nwords,
                              emb_size, 
-                             )
+                             embeddings_initializer='glorot_uniform')
         self.linear = tf.keras.layers.Dense(ntags, 
                         use_bias=True, 
-                        kernel_intializer='glorot_uniform')
+                        kernel_initializer='glorot_uniform')
     
     def call(self, words):
-        emb_out = self.embedidng(words)
+        emb_out = self.embedding(words)
         emb_sum = tf.math.reduce_sum(emb_out, axis=0)
-        emb_out = tf.reshape(emb_out, [1, -1])
-        out = self.linear(emb_out)
-        return emb_out
+        out = tf.reshape(emb_sum, [1, -1])
+        out = self.linear(out)
+        return out
 
 
 class tfDeepCBow(tf.keras.Model):
@@ -47,18 +47,18 @@ class tfDeepCBow(tf.keras.Model):
                     emb_size,
                     activation='tanh',
                     use_bias=True, 
-                    kernel_intializer='glorot_uniform')
+                    kernel_initializer='glorot_uniform')
             else:    
                 dense = tf.keras.layers.Dense(
                     hid_size,
                     activation='tanh',
                     use_bias=True, 
-                    kernel_intializer='glorot_uniform')
+                    kernel_initializer='glorot_uniform')
             self.linears.append(dense)
         self.output_layer = tf.keras.layers.Dense(
                         hid_size,
                         use_bias=True, 
-                        kernel_intializer='glorot_uniform')
+                        kernel_initializer='glorot_uniform')
         
     def call(self, words):
         emb_out = self.embedding(words)
