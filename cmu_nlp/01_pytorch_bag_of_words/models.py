@@ -36,8 +36,8 @@ class CBoW(nn.Module):
     
     
 
-class DeepCBow(nn.Module):
-    def __init__(self, nwords, ntags, emb_size, hid_size, n_layerss):
+class DeepCBoW(nn.Module):
+    def __init__(self, nwords, ntags, emb_size, hid_size, n_layers):
         super(DeepCBoW, self).__init__()
         self.nlayers = n_layers
         self.embedding = nn.Embedding(nwords, emb_size)
@@ -60,7 +60,7 @@ class DeepCBow(nn.Module):
         emb_sum = torch.sum(emb_out, dim=0)     # size(emb_sum) = emb_size
         h = emb_sum.view(1, -1)     # size(h) = 1 x emb_size
         for i in range(self.nlayers):
-            h = torch.tanh(self.linear[i](h))
-        out = self.output_layer(h)
+            h = torch.tanh(self.hidden_layers[i](h))
+        out = self.output(h)
         return out
         
