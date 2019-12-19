@@ -32,40 +32,36 @@ class tfCBow(tf.keras.Model):
         return out
 
 
-class tfDeepCBow(tf.keras.Model):
+class tf_Deep_CBow(tf.keras.Model):
     def __init__(self, nwords, ntags, emb_size, nlayers, hid_size):
-        super(tfDeepCBow, self).__init__()
+        super(tf_Deep_CBow, self).__init__()
+        self.nlayers = nlayers
         self.embedding = tf.keras.layers.Embedding(
             nwords,
             emb_size,
             embeddings_initializer='glorot_uniform'
         )
+        
         self.linears = []
+        
         for i in range(nlayers):
-            if i == 0:
-                dense = tf.keras.layers.Dense(
-                    emb_size,
-                    activation='tanh',
-                    use_bias=True, 
-                    kernel_initializer='glorot_uniform')
-            else:    
-                dense = tf.keras.layers.Dense(
-                    hid_size,
-                    activation='tanh',
-                    use_bias=True, 
-                    kernel_initializer='glorot_uniform')
+            dense = tf.keras.layers.Dense(
+            emb_size,
+            activation='tanh',
+            use_bias=True, 
+            kernel_initializer='glorot_uniform')
             self.linears.append(dense)
+         
         self.output_layer = tf.keras.layers.Dense(
-                        hid_size,
-                        use_bias=True, 
+                        ntags,
                         kernel_initializer='glorot_uniform')
         
     def call(self, words):
         emb_out = self.embedding(words)
-        out = tf.math.reduce_sum(emb_out)
-        out = tf.reshape(out, [1, -1])
-        for linear in self.linears:
-            out = linear(out)
+        out_sum = tf.math.reduce_sum(emb_out)
+        out = tf.reshape(out_sum, [1, -1])
+        for i in range(self.nlayers):
+            out = self.linears[i](out)
         out = self.output_layer(out)
         return out
             
